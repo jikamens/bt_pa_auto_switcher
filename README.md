@@ -117,7 +117,7 @@ http://github.com/jikamens/bt_pa_auto_switcher
 
 # AUTHOR
 
-Jonathan Kamens <jik@kamens.us>
+Jonathan Kamens \<jik@kamens.us\>
 
 # COPYRIGHT
 
