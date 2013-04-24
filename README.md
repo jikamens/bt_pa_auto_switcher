@@ -1,6 +1,6 @@
 # NAME
 
-bt\_pa\_auto\_switcher.py - Switch Bluetooth headset between A2DP and HSP
+bt_pa_auto_switcher.py - Switch Bluetooth headset between A2DP and HSP
 automatically with Pulseaudio
 
 # DESCRIPTION
@@ -113,7 +113,7 @@ functionality being split seemingly arbitrarily between the two tools.
 
 # REPOSITORY
 
-http://github.com/jikamens/bt\_pa\_auto\_switcher
+http://github.com/jikamens/bt_pa_auto_switcher
 
 # AUTHOR
 
