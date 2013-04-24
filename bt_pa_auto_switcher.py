@@ -143,6 +143,8 @@ use Expect;
 my $valid_clients = qr/(?:Skype|WEBRTC VoiceEngine)/;
 my $mute_corked = 1;
 
+&main_loop;
+
 my(%connections, %muted, $saved_volume);
 
 sub main_loop {
