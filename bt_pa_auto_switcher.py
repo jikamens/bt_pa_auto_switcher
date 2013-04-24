@@ -99,6 +99,13 @@ script works in reverse to switch back to A2DP: it saves the volume
 for next time, switches back to the A2DP profile, restores the
 previous A2DP volume, and unmutes the muted audio output clients.
 
+=head1 SEE ALSO
+
+You may also find useful my
+L<script|http://blog.kamens.us/2012/10/05/pulseaudio-switch-to-headset-automatically-when-its-plugged-in-docked/>
+to switch to a Bluetooth or USB headset automatically when it's
+plugged in or paired.
+
 =head1 PEEVES
 
 Like many other things in Pulseaudio, the "division of labor" between
