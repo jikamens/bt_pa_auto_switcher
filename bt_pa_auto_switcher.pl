@@ -145,10 +145,12 @@ use strict;
 use warnings;
 
 use Expect;
+use File::Basename;
 
 # WEBRTC VoiceEngine is Google Chat, Voice, and Talk.
 my $valid_clients = qr/(?:Skype|WEBRTC VoiceEngine)/;
 my $mute_corked = 1;
+my $whoami = basename $0;
 
 &main_loop;
 
@@ -201,14 +203,14 @@ sub new {
     my($type, $num) = @_;
     my $client = &get_client($type, $num);
     return undef if (! $client);
-    print "NEW: $type / $num / $client\n";
+    print "$whoami: NEW: $type / $num / $client\n";
     $connections{$type}->{$num} = 1;
 }
 
 sub remove {
     my($type, $num) = @_;
     return undef if (! delete($connections{$type}->{$num}));
-    print "REMOVE: $type / $num\n";
+    print "$whoami: REMOVE: $type / $num\n";
     return 1;
 }
 
@@ -233,26 +235,36 @@ sub neither {
 sub get_client {
     local($_);
     my($type, $num) = @_;
-    open(PACMD, "-|", "pacmd list-${type}s") or die;
+    my $cmd = "pacmd list-${type}s";
+    open(PACMD, "-|", $cmd) or die;
     my($in) = 0;
+    my $ret = undef;
     while (<PACMD>) {
 	if (/^\s*index:\s+$num\b/) {
 	    $in = 1;
 	    next;
 	}
 	elsif ($in && /^\s*index:\s+\d+\b/) {
-	    return undef;
+	    last;
 	}
 	elsif ($in && /^\s+application\.name = "($valid_clients)"/o) {
-	    print "good client ($type, $num): $1\n";
-	    return $1;
+	    print "$whoami: good client ($type, $num): $1\n";
+	    $ret = $1;
+	    last;
 	}
 	elsif ($in && /^\s+application\.name = "(.*)"/) {
-	    print "bad client ($type, $num): $1\n";
-	    return undef;
+	    print "$whoami: bad client ($type, $num): $1\n";
+	    last;
 	}
     }
-    return undef;
+    if (! close(PACMD)) {
+	my $msg = "$whoami: '$cmd' failed; need to restart Pulseaudio? " .
+	    "Aborting.";
+	system('zenity', '--error', '--text', $msg);
+	print(STDERR "$msg\n");
+	exit(1);
+    }
+    return $ret;
 }
 
 sub switch {
@@ -262,7 +274,7 @@ sub switch {
     my $source_name;
     ($source_name = $sink_name) =~ s/sink/source/;
     &mute_corked();
-    print "Switching\n";
+    print "$whoami: Switching\n";
     open(PACMD, "|-", "pacmd >/dev/null") or die;
     print(PACMD "set-card-profile $card_name hsp\n");
     print(PACMD "set-default-source $source_name\n");
@@ -287,12 +299,12 @@ sub switch_back {
 	return;
     }
     my $new_volume = &get_sink_volume($sink_name);
-    print "Switching back\n";
+    print "$whoami: Switching back\n";
     open(PACMD, "|-", "pacmd >/dev/null") or die;
     print(PACMD "set-card-profile $card_name a2dp\n");
     print(PACMD "set-default-sink $sink_name\n");
     if (defined($saved_volume)) {
-	print "Resetting volume to $saved_volume\n";
+	print "$whoami: Resetting volume to $saved_volume\n";
 	print(PACMD "set-sink-volume $sink_name $saved_volume");
     }
     close(PACMD) || warn "pacmd failed\n";
@@ -344,7 +356,7 @@ sub get_sink_volume {
 	elsif ($in && /^\s*volume steps:\s+(\d+)/) {
 	    my $steps = $1;
 	    my $volume = int($pct / 100 * $steps);
-	    print "$sink volume: $volume / $steps\n";
+	    print "$whoami: $sink volume: $volume / $steps\n";
 	    return $volume;
 	}
     }
@@ -396,18 +408,18 @@ sub mute_corked {
     close(PACMD);
     return if (! %muted);
     my(%apps) = reverse %muted;
-    print "Muting ", join(" ", sort keys %apps), "\n";
+    print "$whoami: Muting ", join(" ", sort keys %apps), "\n";
     open(PACMD, "|-", "pacmd >/dev/null") or die;
     foreach my $input (keys %muted) {
 	print(PACMD "set-sink-input-mute $input 1\n");
-	print("set-sink-input-mute $input 1\n");
+	print("$whoami: set-sink-input-mute $input 1\n");
     }
     close(PACMD) || warn "pacmd failed\n";
 }
 
 sub unmute_corked {
     return if (! %muted);
-    print "Unmuting\n";
+    print "$whoami: Unmuting\n";
     open(PACMD, "|-", "pacmd >/dev/null") or die;
     foreach my $input (keys %muted) {
 	print(PACMD "set-sink-input-mute $input 0\n");
