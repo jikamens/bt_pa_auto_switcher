@@ -2,7 +2,7 @@
 
 =head1 NAME
 
-bt_pa_auto_switcher.py - Switch Bluetooth headset between A2DP and HSP
+bt_pa_auto_switcher.pl - Switch Bluetooth headset between A2DP and HSP
 automatically with Pulseaudio
 
 =head1 DESCRIPTION
