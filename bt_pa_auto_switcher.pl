@@ -235,36 +235,39 @@ sub neither {
 sub get_client {
     local($_);
     my($type, $num) = @_;
-    my $cmd = "pacmd list-${type}s";
-    open(PACMD, "-|", $cmd) or die;
-    my($in) = 0;
-    my $ret = undef;
-    while (<PACMD>) {
-	if (/^\s*index:\s+$num\b/) {
-	    $in = 1;
-	    next;
-	}
-	elsif ($in && /^\s*index:\s+\d+\b/) {
-	    last;
-	}
-	elsif ($in && /^\s+application\.name = "($valid_clients)"/o) {
-	    print "$whoami: good client ($type, $num): $1\n";
-	    $ret = $1;
-	    last;
-	}
-	elsif ($in && /^\s+application\.name = "(.*)"/) {
-	    print "$whoami: bad client ($type, $num): $1\n";
-	    last;
-	}
+    for ($tries = 0; $tries < 5; $tries++) {
+	 my $cmd = "pacmd list-${type}s";
+	 open(PACMD, "-|", $cmd) or die;
+	 my($in) = 0;
+	 my $ret = undef;
+	 while (<PACMD>) {
+	     if (/^\s*index:\s+$num\b/) {
+		 $in = 1;
+		 next;
+	     }
+	     elsif ($in && /^\s*index:\s+\d+\b/) {
+		 last;
+	     }
+	     elsif ($in && /^\s+application\.name = "($valid_clients)"/o) {
+		 print "$whoami: good client ($type, $num): $1\n";
+		 $ret = $1;
+		 last;
+	     }
+	     elsif ($in && /^\s+application\.name = "(.*)"/) {
+		 print "$whoami: bad client ($type, $num): $1\n";
+		 last;
+	     }
+	 }
+	 if (close(PACMD)) {
+	     return $ret;
+	 }
+	 sleep(1);
     }
-    if (! close(PACMD)) {
-	my $msg = "$whoami: '$cmd' failed; need to restart Pulseaudio? " .
-	    "Aborting.";
-	system('zenity', '--error', '--text', $msg);
-	print(STDERR "$msg\n");
-	exit(1);
-    }
-    return $ret;
+    my $msg = "$whoami: '$cmd' failed; need to restart Pulseaudio? " .
+	"Aborting.";
+    system('zenity', '--error', '--text', $msg);
+    print(STDERR "$msg\n");
+    exit(1);
 }
 
 sub switch {
