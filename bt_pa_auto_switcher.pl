@@ -235,8 +235,8 @@ sub neither {
 sub get_client {
     local($_);
     my($type, $num) = @_;
-    for ($tries = 0; $tries < 5; $tries++) {
-	 my $cmd = "pacmd list-${type}s";
+    my $cmd = "pacmd list-${type}s";
+    for (my $tries = 0; $tries < 5; $tries++) {
 	 open(PACMD, "-|", $cmd) or die;
 	 my($in) = 0;
 	 my $ret = undef;
