@@ -147,6 +147,13 @@ use warnings;
 use Expect;
 use File::Basename;
 
+# https://github.com/jikamens/bt_pa_auto_switcher/issues/1
+#
+# Make sure output of pulseaudio commands is English even on systems
+# where that is not the dominant language, so that we can parse it as
+# expected.
+$ENV{'LC_ALL'} = "C";
+
 # WEBRTC VoiceEngine is Google Chat, Voice, and Talk.
 my $valid_clients = qr/(?:Skype|WEBRTC VoiceEngine)/;
 my $mute_corked = 1;
