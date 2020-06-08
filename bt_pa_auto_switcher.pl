@@ -254,34 +254,28 @@ sub get_client {
     local($_);
     my($type, $num) = @_;
     my $cmd = "list-${type}s";
+    my $output;
     for (my $tries = 0; $tries < 5; $tries++) {
-        my $output = &pacmd($cmd);
+        $output = &pacmd($cmd);
         next if (! defined($output));
-        my($in) = 0;
-        for (split(/\n/, $output)) {
-            if (/^\s*index:\s+$num\b/) {
-                $in = 1;
-                next;
+        for (split(/index:\s*/, $output)) {
+            next if (! /^(\d+)/ or $1 ne $num);
+            next if (! /^\s+application\.name = "(.*)"/mo);
+            my $name = $1;
+            if ($name =~ /^(?:$valid_clients)$/o) {
+                print "$whoami: good client ($type, $num): $name\n";
+                return $name;
             }
-            elsif ($in && /^\s*index:\s+\d+\b/) {
-                last;
-            }
-            elsif ($in && /^\s+application\.name = "($valid_clients)"/o) {
-                print "$whoami: good client ($type, $num): $1\n";
-                return $1;
-            }
-            elsif ($in && /^\s+application\.name = "(.*)"/) {
-                print "$whoami: bad client ($type, $num): $1\n";
-                return undef;
-            }
+            print "$whoami: bad client ($type, $num): $name\n";
+            return undef;
         }
         sleep(1);
     }
-    my $msg = "$whoami: '$cmd' failed; need to restart Pulseaudio? " .
-	"Aborting.";
-    system("zenity", "--error", "--text", $msg);
-    print(STDERR "$msg\n");
-    exit(1);
+    if ($output !~ /available\.$/m) {
+        die("pacmd $cmd looking for index #$num failed, aborting. Output:\n",
+            $output);
+    }
+    return undef;
 }
 
 sub switch {
