@@ -121,7 +121,7 @@ Jonathan Kamens \<jik@kamens.us\>
 
 # COPYRIGHT
 
-Copyright (2) 2013 Jonathan Kamens.
+Copyright (c) 2013,2017,2020 Jonathan Kamens.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
