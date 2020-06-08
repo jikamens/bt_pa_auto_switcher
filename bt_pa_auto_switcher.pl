@@ -155,7 +155,7 @@ use File::Basename;
 $ENV{'LC_ALL'} = "C";
 
 # WEBRTC VoiceEngine is Google Chat, Voice, and Talk.
-my $valid_clients = qr/(?:Skype|WEBRTC VoiceEngine)/;
+my $valid_clients = qr/(?:Skype|WEBRTC VoiceEngine|Google Chrome(?: input)?)/;
 my $mute_corked = 1;
 my $whoami = basename $0;
 
