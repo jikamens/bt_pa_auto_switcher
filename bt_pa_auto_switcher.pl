@@ -152,7 +152,7 @@ use File::Basename;
 # Make sure output of pulseaudio commands is English even on systems
 # where that is not the dominant language, so that we can parse it as
 # expected.
-$ENV{'LC_ALL'} = "C";
+$ENV{"LC_ALL"} = "C";
 
 # WEBRTC VoiceEngine is Google Chat, Voice, and Talk.
 my $valid_clients = qr/(?:Skype|WEBRTC VoiceEngine|Google Chrome(?: input)?)/;
@@ -167,13 +167,13 @@ sub main_loop {
     my($exp, $patidx);
 
     my $start_time = time();
-    while (($exp && ($patidx = $exp->expect(undef, '-re', '.*\n'))) ||
+    while (($exp && ($patidx = $exp->expect(undef, "-re", ".*\\n"))) ||
 	   $start_time) {
 	if (! $patidx) {
 	    # No successful output yet... first time through the loop, so
 	    # we need to initialize, or Pulseaudio hasn't started yet.
 	    if (time() - $start_time < 30) {
-		$exp = Expect->spawn('pactl', 'subscribe') or die;
+		$exp = Expect->spawn("pactl", "subscribe") or die;
 		$exp->log_user(0);
 		$exp->log_stdout(0);
 		sleep(1);
@@ -280,7 +280,7 @@ sub get_client {
     }
     my $msg = "$whoami: '$cmd' failed; need to restart Pulseaudio? " .
 	"Aborting.";
-    system('zenity', '--error', '--text', $msg);
+    system("zenity", "--error", "--text", $msg);
     print(STDERR "$msg\n");
     exit(1);
 }
@@ -303,7 +303,7 @@ sub switch {
     foreach my $sink_input (keys %{$connections{"sink-input"}}) {
 	&pacmd("move-sink-input $sink_input $new_sink");
     }
-    foreach my $source_output (keys %{$connections{'source-output'}}) {
+    foreach my $source_output (keys %{$connections{"source-output"}}) {
 	&pacmd("move-source-output $source_output $new_source");
     }
     if (defined($saved_volume)) {
@@ -420,7 +420,7 @@ sub get_current_profile {
 sub hsp {
     my($device, $mode) = &get_running_bluez_device();
     my $profile = &get_current_profile($device);
-    $profile eq 'headset_head_unit';
+    $profile eq "headset_head_unit";
 }
 
 sub mute_corked {
@@ -432,7 +432,7 @@ sub mute_corked {
 	my($app, $num);
 	if (/START_CORKED/ && /muted: no/ &&
 	    (($app) = /application\.name = "(.*)"/) &&
-	    (($num) = /^\s*(\d+)/) && ! $connections{'sink-input'}->{$num}) {
+	    (($num) = /^\s*(\d+)/) && ! $connections{"sink-input"}->{$num}) {
 	    $muted{$num} = $app;
 	}
     }
