@@ -239,36 +239,44 @@ sub neither {
     return 1;
 }
 
+sub pacmd {
+    my($cmd) = @_;
+    my $output = `pacmd $cmd`;
+    if ($?) {
+        warn("pacmd $cmd exited non-zero\n");
+        return undef;
+    }
+    chomp($output);
+    print("pacmd $cmd", $output ? " output: $output\n" : "\n");
+    return $output;
+}
+
 sub get_client {
     local($_);
     my($type, $num) = @_;
-    my $cmd = "pacmd list-${type}s";
+    my $cmd = "list-${type}s";
     for (my $tries = 0; $tries < 5; $tries++) {
-	 open(PACMD, "-|", $cmd) or die;
-	 my($in) = 0;
-	 my $ret = undef;
-	 while (<PACMD>) {
-	     if (/^\s*index:\s+$num\b/) {
-		 $in = 1;
-		 next;
-	     }
-	     elsif ($in && /^\s*index:\s+\d+\b/) {
-		 last;
-	     }
-	     elsif ($in && /^\s+application\.name = "($valid_clients)"/o) {
-		 print "$whoami: good client ($type, $num): $1\n";
-		 $ret = $1;
-		 last;
-	     }
-	     elsif ($in && /^\s+application\.name = "(.*)"/) {
-		 print "$whoami: bad client ($type, $num): $1\n";
-		 last;
-	     }
-	 }
-	 if (close(PACMD)) {
-	     return $ret;
-	 }
-	 sleep(1);
+        my $output = &pacmd($cmd);
+        next if (! defined($output));
+        my($in) = 0;
+        for (split(/\n/, $output)) {
+            if (/^\s*index:\s+$num\b/) {
+                $in = 1;
+                next;
+            }
+            elsif ($in && /^\s*index:\s+\d+\b/) {
+                last;
+            }
+            elsif ($in && /^\s+application\.name = "($valid_clients)"/o) {
+                print "$whoami: good client ($type, $num): $1\n";
+                return $1;
+            }
+            elsif ($in && /^\s+application\.name = "(.*)"/) {
+                print "$whoami: bad client ($type, $num): $1\n";
+                return undef;
+            }
+        }
+        sleep(1);
     }
     my $msg = "$whoami: '$cmd' failed; need to restart Pulseaudio? " .
 	"Aborting.";
@@ -278,69 +286,80 @@ sub get_client {
 }
 
 sub switch {
-    my($sink_name, $card_name) = &get_running_bluez_sink();
-    return if (! $sink_name);
-    my $new_volume = &get_sink_volume($sink_name);
-    my $source_name;
-    ($source_name = $sink_name) =~ s/sink/source/;
+    my($device, $mode) = &get_running_bluez_device();
+    return if (! $device);
+    my $card = &device_card($device);
+    my $current_source = &device_source($device, $mode);
+    my $new_source = &device_source($device, "headset_head_unit");
+    my $current_sink = &device_sink($device, $mode);
+    my $new_sink = &device_sink($device, "headset_head_unit");
+    my $new_volume = ($current_sink ne $new_sink) ?
+        &get_sink_volume($current_sink) : undef;
     &mute_corked();
     print "$whoami: Switching\n";
-    open(PACMD, "|-", "pacmd >/dev/null") or die;
-    print(PACMD "set-card-profile $card_name hsp\n");
-    print(PACMD "set-default-source $source_name\n");
-    print(PACMD "set-default-sink $sink_name\n");
-    foreach my $sink (keys %{$connections{'sink-input'}}) {
-	print(PACMD "move-sink-input $sink $sink_name\n");
+    &pacmd("set-card-profile $card headset_head_unit");
+    &pacmd("set-default-source $new_source");
+    &pacmd("set-default-sink $new_sink");
+    foreach my $sink_input (keys %{$connections{"sink-input"}}) {
+	&pacmd("move-sink-input $sink_input $new_sink");
     }
-    foreach my $source (keys %{$connections{'source-output'}}) {
-	print(PACMD "move-source-output $source $source_name\n");
+    foreach my $source_output (keys %{$connections{'source-output'}}) {
+	&pacmd("move-source-output $source_output $new_source");
     }
     if (defined($saved_volume)) {
 	print "Resetting volume to $saved_volume\n";
-	print(PACMD "set-sink-volume $sink_name $saved_volume\n");
+	&pacmd("set-sink-volume $new_sink $saved_volume");
     }
-    close(PACMD) || warn "pacmd failed\n";
     $saved_volume = $new_volume;
 }
 
 sub switch_back {
-    my($sink_name, $card_name) = &get_running_bluez_sink();
-    if (! $sink_name) {
-	return;
-    }
-    my $new_volume = &get_sink_volume($sink_name);
+    my($device, $mode) = &get_running_bluez_device();
+    return if (! $device);
+    my $card = &device_card($device);
+    my $current_sink = &device_sink($device, $mode);
+    my $new_sink = &device_sink($device, "a2dp_sink");
+    my $new_volume = ($current_sink ne $new_sink) ?
+        &get_sink_volume($current_sink) : undef;
     print "$whoami: Switching back\n";
-    open(PACMD, "|-", "pacmd >/dev/null") or die;
-    print(PACMD "set-card-profile $card_name a2dp\n");
-    print(PACMD "set-default-sink $sink_name\n");
+    &pacmd("set-card-profile $card a2dp_sink");
+    &pacmd("set-default-sink $new_sink");
     if (defined($saved_volume)) {
 	print "$whoami: Resetting volume to $saved_volume\n";
-	print(PACMD "set-sink-volume $sink_name $saved_volume");
+	&pacmd("set-sink-volume $new_sink $saved_volume");
     }
-    close(PACMD) || warn "pacmd failed\n";
     $saved_volume = $new_volume;
     &unmute_corked();
 }
 
-sub get_running_bluez_sink {
+sub device_card {
+    my($device) = @_;
+    return "bluez_card.$device";
+}
+
+sub device_source {
+    my($device, $type) = @_;
+    return "bluez_source.$device.$type";
+}
+
+sub device_sink {
+    my($device, $type) = @_;
+    return "bluez_sink.$device.$type";
+}
+
+sub get_running_bluez_device {
     local($_);
     my($sink);
-    open(STAT, "-|", "pactl stat");
+    open(STAT, "-|", "pactl info");
     while (<STAT>) {
 	if (/^Default Sink/) {
-	    if (/(bluez_sink.*)/) {
-		$sink = $1;
-		last;
+	    if (/bluez_sink\.([^.]+)\.(.*)/) {
+                return($1, $2);
 	    }
 	    return undef;
 	}
     }
-    if ($sink) {
-	my($card) = $sink;
-	$card =~ s/sink/card/;
-	return($sink, $card);
-    }
-    return ();
+    return undef;
 }
 
 sub get_sink_volume {
@@ -349,9 +368,10 @@ sub get_sink_volume {
     my($sink_re) = $sink;
     $sink_re =~ s/(\W)/\\$1/g;
     my($pct, $steps);
+    my $output = &pacmd("list-sinks");
+    die if (! defined($output));
     my $in = 0;
-    open(PACMD, "-|", "pacmd list-sinks");
-    while (<PACMD>) {
+    for (split(/\n/, $output)) {
 	if (/^\s*name: <$sink_re>/) {
 	    $in = 1;
 	    next;
@@ -363,10 +383,10 @@ sub get_sink_volume {
 	    $pct = $1;
 	    next;
 	}
-	elsif ($in && /^\s*volume steps:\s+(\d+)/) {
-	    my $steps = $1;
-	    my $volume = int($pct / 100 * $steps);
-	    print "$whoami: $sink volume: $volume / $steps\n";
+	elsif ($in && /^\s*base volume:\s+(\d+)/) {
+	    my $base = $1;
+	    my $volume = int($pct / 100 * $base);
+	    print "$whoami: $sink volume: $volume / $base\n";
 	    return $volume;
 	}
     }
@@ -375,12 +395,14 @@ sub get_sink_volume {
 
 sub get_current_profile {
     local($_);
-    my($card) = @_;
-    my($card_re) = $card;
-    my $in = 0;
+    my($device) = @_;
+    return undef if (! $device);
+    my($card_re) = &device_card($device);
     $card_re =~ s/(\W)/\\$1/g;
-    open(PACMD, "-|", "pacmd list-cards") or die;
-    while (<PACMD>) {
+    my $output = &pacmd("list-cards");
+    die if (! defined($output));
+    my $in = 0;
+    for (split(/\n/, $output)) {
 	if (/^\s*name: <$card_re>/) {
 	    $in = 1;
 	    next;
@@ -396,18 +418,17 @@ sub get_current_profile {
 }
 
 sub hsp {
-    my($sink, $card) = &get_running_bluez_sink();
-    my $profile = &get_current_profile($card);
-    $profile eq 'hsp';
+    my($device, $mode) = &get_running_bluez_device();
+    my $profile = &get_current_profile($device);
+    $profile eq 'headset_head_unit';
 }
 
 sub mute_corked {
     return if (! $mute_corked);
 
     local($_);
-    local($/) = "index:";
-    open(PACMD, "-|", "pacmd list-sink-inputs");
-    while (<PACMD>) {
+    my $output = &pacmd("list-sink-inputs");
+    for (split(/index:/, $output)) {
 	my($app, $num);
 	if (/START_CORKED/ && /muted: no/ &&
 	    (($app) = /application\.name = "(.*)"/) &&
@@ -415,25 +436,19 @@ sub mute_corked {
 	    $muted{$num} = $app;
 	}
     }
-    close(PACMD);
     return if (! %muted);
     my(%apps) = reverse %muted;
     print "$whoami: Muting ", join(" ", sort keys %apps), "\n";
-    open(PACMD, "|-", "pacmd >/dev/null") or die;
     foreach my $input (keys %muted) {
-	print(PACMD "set-sink-input-mute $input 1\n");
-	print("$whoami: set-sink-input-mute $input 1\n");
+	&pacmd("set-sink-input-mute $input 1");
     }
-    close(PACMD) || warn "pacmd failed\n";
 }
 
 sub unmute_corked {
     return if (! %muted);
     print "$whoami: Unmuting\n";
-    open(PACMD, "|-", "pacmd >/dev/null") or die;
     foreach my $input (keys %muted) {
-	print(PACMD "set-sink-input-mute $input 0\n");
+	&pacmd("set-sink-input-mute $input 0");
     }
-    close(PACMD) || warn "pacmd failed\n";
     %muted = ()
 }
