@@ -158,6 +158,7 @@ $ENV{"LC_ALL"} = "C";
 my $valid_clients = qr/(?:Skype|WEBRTC VoiceEngine|Google Chrome(?: input)?)/;
 my $mute_corked = 1;
 my $whoami = basename $0;
+my $verbose = 0;
 
 &main_loop;
 
@@ -247,7 +248,13 @@ sub pacmd {
         return undef;
     }
     chomp($output);
-    print("pacmd $cmd", $output ? " output: $output\n" : "\n");
+    my $multiline = ($output =~ /\n/);
+    if ($output and ($verbose or !$multiline)) {
+        print("pacmd $cmd output: $output\n");
+    }
+    else {
+        print("pacmd $cmd\n");
+    }
     return $output;
 }
 
