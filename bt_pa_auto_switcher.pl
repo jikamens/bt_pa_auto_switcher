@@ -200,7 +200,7 @@ sub main_loop {
 	    my($type) = $1;
 	    my($num) = $2;
 	    next if (! &remove($type, $num));
-	    if (&neither && &hsp) {
+	    if (&hsp && ! %{$connections{"source-output"}}) {
 		&switch_back;
 	    }
 	}
@@ -227,14 +227,6 @@ sub both {
 
     map {
 	return undef if (! %{$connections{$_}});
-    } keys %connections;
-
-    return 1;
-}
-
-sub neither {
-    map {
-	return undef if (%{$connections{$_}});
     } keys %connections;
 
     return 1;
