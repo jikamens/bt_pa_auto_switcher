@@ -155,7 +155,15 @@ use File::Basename;
 $ENV{"LC_ALL"} = "C";
 
 # WEBRTC VoiceEngine is Google Chat, Voice, and Talk.
-my $valid_clients = qr/(?:Skype|WEBRTC VoiceEngine|Google Chrome(?: input)?)/;
+my $valid_clients = qr/^(?:Skype|ZOOM VoiceEngine|WEBRTC VoiceEngine|Google Chrome(?: input)?)$/;
+# Clients that sometimes use both the speaker and microphone and other times
+# use just the microphone need to be matched by this regexp.
+my $persistent_speaker_users = qr/^(?:Google Chrome)$/;
+# If a client uses a different name for connecting to the microphone than
+# it uses for connecting to the speaker, that needs to be mapped here.
+my %client_name_map = (
+    'Google Chrome input' => 'Google Chrome'
+    );
 my $mute_corked = 1;
 my $whoami = basename $0;
 my $verbose = 0;
@@ -200,7 +208,7 @@ sub main_loop {
 	    my($type) = $1;
 	    my($num) = $2;
 	    next if (! &remove($type, $num));
-	    if (&hsp && ! %{$connections{"source-output"}}) {
+	    if (&time_to_go) {
 		&switch_back;
 	    }
 	}
@@ -211,14 +219,16 @@ sub new {
     my($type, $num) = @_;
     my $client = &get_client($type, $num);
     return undef if (! $client);
+    $client = $client_name_map{$client} || $client;
     print "$whoami: NEW: $type / $num / $client\n";
-    $connections{$type}->{$num} = 1;
+    $connections{$type}->{$num} = $client;
 }
 
 sub remove {
     my($type, $num) = @_;
-    return undef if (! delete($connections{$type}->{$num}));
-    print "$whoami: REMOVE: $type / $num\n";
+    my $name;
+    return undef if (! ($name = delete($connections{$type}->{$num})));
+    print "$whoami: REMOVE: $type / $num / $name\n";
     return 1;
 }
 
@@ -229,6 +239,31 @@ sub both {
 	return undef if (! %{$connections{$_}});
     } keys %connections;
 
+    return 1;
+}
+
+sub time_to_go {
+    # It's time to switch back when all persistent clients are no longer using
+    # the microphone and all non-persistent client are no longer using either
+    # the microphone or the speaker.
+    return undef if (! &hsp); # Don't need to go if we're already gone
+    my(%types, %counts);
+    foreach my $type (keys %connections) {
+        while (my($num, $name) = each %{$connections{$type}}) {
+            $types{$name}->{$type} = 1;
+        }
+    }
+    foreach my $name (keys %types) {
+        $counts{$name} = scalar %{$types{$name}};
+    }
+    while (my($name, $count) = each %counts) {
+        if ($name =~ /$persistent_speaker_users/o and $counts{$name} == 2) {
+            return undef;
+        }
+        if ($name !~ /$persistent_speaker_users/o and $counts{$name}) {
+            return undef;
+        }
+    }
     return 1;
 }
 
@@ -262,7 +297,7 @@ sub get_client {
             next if (! /^(\d+)/ or $1 ne $num);
             next if (! /^\s+application\.name = "(.*)"/mo);
             my $name = $1;
-            if ($name =~ /^(?:$valid_clients)$/o) {
+            if ($name =~ /$valid_clients/o) {
                 print "$whoami: good client ($type, $num): $name\n";
                 return $name;
             }
