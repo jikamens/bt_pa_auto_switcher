@@ -155,10 +155,21 @@ use File::Basename;
 $ENV{"LC_ALL"} = "C";
 
 # WEBRTC VoiceEngine is Google Chat, Voice, and Talk.
+# Zoom is a bit problematic. Theoretically, it *should* only use the speaker
+# and microphone while it's in a meeting. Unfortunately, sometimes it stays
+# connected to the speaker even when it's not in a meeting, which means we have
+# to treat it as a persistent speaker user. Worse, sometimes it stays connected
+# to *both* the speaker and the microphone even when it isn't in a meeting.
+# When that happens this script can't do the right thing, because it can't
+# detect that Zoom isn't done if Zoom doesn't release the microphone. If you
+# notice that your headset is still in HSP mode after you're done with a Zoom
+# call, you need to exit the Zoom client entirely, which will cause it to
+# release the microphone connection, at which point this script will do the
+# right thing.
 my $valid_clients = qr/^(?:Skype|ZOOM VoiceEngine|WEBRTC VoiceEngine|Google Chrome(?: input)?)$/;
 # Clients that sometimes use both the speaker and microphone and other times
-# use just the microphone need to be matched by this regexp.
-my $persistent_speaker_users = qr/^(?:Google Chrome)$/;
+# use just the speaker need to be matched by this regexp.
+my $persistent_speaker_users = qr/^(?:Google Chrome|ZOOM VoiceEngine)$/;
 # If a client uses a different name for connecting to the microphone than
 # it uses for connecting to the speaker, that needs to be mapped here.
 my %client_name_map = (
@@ -168,57 +179,95 @@ my $mute_corked = 1;
 my $whoami = basename $0;
 my $verbose = 0;
 
-&main_loop;
-
 my(%connections, %muted, $saved_volume);
+my $alarmed = 1;
+
+&main_loop;
 
 sub main_loop {
     my($exp, $patidx);
 
-    my $start_time = time();
-    while (($exp && ($patidx = $exp->expect(undef, "-re", ".*\\n"))) ||
-	   $start_time) {
-	if (! $patidx) {
-	    # No successful output yet... first time through the loop, so
-	    # we need to initialize, or Pulseaudio hasn't started yet.
-	    if (time() - $start_time < 30) {
-		$exp = Expect->spawn("pactl", "subscribe") or die;
-		$exp->log_user(0);
-		$exp->log_stdout(0);
-		sleep(1);
-		next;
-	    }
-	    last;
-	}
-	# We've successfully read at least one event, so we're done
-	# waiting for Pulseaudio to start up.
-	$start_time = undef;
+    $SIG{'ALRM'} = \&check;
 
-	$_ = $exp->match();
-	next if (/on client |'change'/);
-	if (/^Event 'new' on (sink-input|source-output) \#(\d+)/) {
-	    my($type) = $1;
-	    my($num) = $2;
-	    next if (! &new($type, $num));
-	    if (&both && ! &hsp) {
-		&switch;
-	    }
-	}
-	elsif (/^Event 'remove' on (sink-input|source-output) \#(\d+)/) {
-	    my($type) = $1;
-	    my($num) = $2;
-	    next if (! &remove($type, $num));
-	    if (&time_to_go) {
-		&switch_back;
-	    }
-	}
+    eval { # So the script doesn't die if Pulseaudio isn't running yet
+        &populate_initial_clients;
+    };
+    
+    my $start_time = time();
+    while ($alarmed) {
+        $alarmed = undef;
+        while (($exp && ($patidx = $exp->expect(undef, "-re", ".*\\n"))) ||
+               $start_time) {
+            if (! $patidx) {
+                # No successful output yet... first time through the loop, so
+                # we need to initialize, or Pulseaudio hasn't started yet.
+                if (time() - $start_time < 30) {
+                    print("Spawning pactl subscribe\n");
+                    $exp = Expect->spawn("pactl", "subscribe") or die;
+                    $exp->log_user(0);
+                    $exp->log_stdout(0);
+                    sleep(1);
+                    next;
+                }
+                last;
+            }
+            # We've successfully read at least one event, so we're done
+            # waiting for Pulseaudio to start up.
+            if ($start_time) {
+                # In case the one above failed because Pulseaudio wasn't
+                # running yet.
+                &populate_initial_clients;
+                $start_time = undef;
+            }
+
+            $_ = $exp->match();
+            next if (/on client |'change'/);
+            if (/^Event 'new' on (sink-input|source-output) \#(\d+)/) {
+                my($type) = $1;
+                my($num) = $2;
+                next if (! &new($type, $num));
+                alarm(1);
+            }
+            elsif (/^Event 'remove' on (sink-input|source-output) \#(\d+)/) {
+                my($type) = $1;
+                my($num) = $2;
+                next if (! &remove($type, $num));
+                alarm(1);
+            }
+        }
     }
 }
 
+sub populate_initial_clients {
+    foreach my $type ('sink-input', 'source-output') {
+        my(@clients) = &get_client($type);
+        return if (! @clients);
+        foreach my $client (@clients) {
+            next if (! &new($type, @{$client}));
+            alarm(1);
+        }
+    }
+}
+
+sub check {
+    $alarmed = 1;
+    print("Quiet for one second, so checking for state change\n");
+    if (&both && ! &hsp) {
+        &switch;
+    }
+    elsif (&time_to_go) {
+        &switch_back;
+    }
+    print("Done checking for state change\n");
+}
+
 sub new {
-    my($type, $num) = @_;
-    my $client = &get_client($type, $num);
-    return undef if (! $client);
+    my($type, $num, $client) = @_;
+    if (! $client) {
+        ($client) = &get_client($type, $num);
+        return undef if (! $client);
+        $client = $client->[1];
+    }
     $client = $client_name_map{$client} || $client;
     print "$whoami: NEW: $type / $num / $client\n";
     $connections{$type}->{$num} = $client;
@@ -287,30 +336,38 @@ sub pacmd {
 
 sub get_client {
     local($_);
-    my($type, $num) = @_;
+    my($type, $want_num) = @_;
     my $cmd = "list-${type}s";
-    my $output;
+    my(@clients, $output);
     for (my $tries = 0; $tries < 5; $tries++) {
         $output = &pacmd($cmd);
         next if (! defined($output));
         for (split(/index:\s*/, $output)) {
-            next if (! /^(\d+)/ or $1 ne $num);
+            my($num) = /^(\d+)/;
+            next if (!$num or ($want_num and $want_num != $num));
             next if (! /^\s+application\.name = "(.*)"/mo);
             my $name = $1;
             if ($name =~ /$valid_clients/o) {
                 print "$whoami: good client ($type, $num): $name\n";
-                return $name;
+                push(@clients, [$num, $name]);
+                next;
             }
-            print "$whoami: bad client ($type, $num): $name\n";
-            return undef;
+            if ($want_num) {
+                print "$whoami: bad client ($type, $num): $name\n";
+                return @clients;
+            }
         }
+        if (@clients) {
+            return @clients;
+        }
+        last if (! $want_num);
         sleep(1);
     }
     if ($output !~ /available\.$/m) {
-        die("pacmd $cmd looking for index #$num failed, aborting. Output:\n",
-            $output);
+        die("pacmd $cmd looking for index #$want_num failed, aborting. ",
+            "Output:\n", $output);
     }
-    return undef;
+    return @clients;
 }
 
 sub switch {
