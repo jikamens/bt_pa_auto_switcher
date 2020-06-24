@@ -505,7 +505,7 @@ sub get_current_profile {
 sub hsp {
     my($device, $mode) = &get_running_bluez_device();
     my $profile = &get_current_profile($device);
-    $profile eq "headset_head_unit";
+    $profile and $profile eq "headset_head_unit";
 }
 
 sub mute_corked {
