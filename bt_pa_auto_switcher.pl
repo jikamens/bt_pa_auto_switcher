@@ -166,14 +166,15 @@ $ENV{"LC_ALL"} = "C";
 # call, you need to exit the Zoom client entirely, which will cause it to
 # release the microphone connection, at which point this script will do the
 # right thing.
-my $valid_clients = qr/^(?:Skype|ZOOM VoiceEngine|WEBRTC VoiceEngine|Google Chrome(?: input)?)$/;
+my $valid_clients = qr/^(?:Skype|ZOOM VoiceEngine|WEBRTC VoiceEngine|Google Chrome(?: input)?|Microsoft Teams - Preview)$/;
 # Clients that sometimes use both the speaker and microphone and other times
 # use just the speaker need to be matched by this regexp.
-my $persistent_speaker_users = qr/^(?:Google Chrome|ZOOM VoiceEngine)$/;
+my $persistent_speaker_users = qr/^(?:Google Chrome|ZOOM VoiceEngine|Skype)$/;
 # If a client uses a different name for connecting to the microphone than
 # it uses for connecting to the speaker, that needs to be mapped here.
 my %client_name_map = (
-    'Google Chrome input' => 'Google Chrome'
+    'Google Chrome input' => 'Google Chrome',
+    'Microsoft Teams - Preview' => 'Skype',
     );
 my $mute_corked = 1;
 my $whoami = basename $0;
